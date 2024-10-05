@@ -1,0 +1,14 @@
+imutest\croutine.o: ../Middlewares/Third_Party/FreeRTOS/Source/croutine.c
+imutest\croutine.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/FreeRTOS.h
+imutest\croutine.o: D:\ARM\ARMCC\Bin\..\include\stddef.h
+imutest\croutine.o: D:\ARM\ARMCC\Bin\..\include\stdint.h
+imutest\croutine.o: ../Core/Inc/FreeRTOSConfig.h
+imutest\croutine.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/projdefs.h
+imutest\croutine.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/portable.h
+imutest\croutine.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/deprecated_definitions.h
+imutest\croutine.o: ../Middlewares/Third_Party/FreeRTOS/Source/portable/RVDS/ARM_CM4F/portmacro.h
+imutest\croutine.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/mpu_wrappers.h
+imutest\croutine.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/task.h
+imutest\croutine.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/list.h
+imutest\croutine.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/croutine.h
+imutest\croutine.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/list.h

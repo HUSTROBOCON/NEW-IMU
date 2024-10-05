@@ -1,0 +1,15 @@
+imutest\queue.o: ../Middlewares/Third_Party/FreeRTOS/Source/queue.c
+imutest\queue.o: D:\ARM\ARMCC\Bin\..\include\stdlib.h
+imutest\queue.o: D:\ARM\ARMCC\Bin\..\include\string.h
+imutest\queue.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/FreeRTOS.h
+imutest\queue.o: D:\ARM\ARMCC\Bin\..\include\stddef.h
+imutest\queue.o: D:\ARM\ARMCC\Bin\..\include\stdint.h
+imutest\queue.o: ../Core/Inc/FreeRTOSConfig.h
+imutest\queue.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/projdefs.h
+imutest\queue.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/portable.h
+imutest\queue.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/deprecated_definitions.h
+imutest\queue.o: ../Middlewares/Third_Party/FreeRTOS/Source/portable/RVDS/ARM_CM4F/portmacro.h
+imutest\queue.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/mpu_wrappers.h
+imutest\queue.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/task.h
+imutest\queue.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/list.h
+imutest\queue.o: ../Middlewares/Third_Party/FreeRTOS/Source/include/queue.h
