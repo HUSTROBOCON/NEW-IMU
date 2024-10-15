@@ -4,25 +4,20 @@
 #include "parameter.h"
 #include "math.h"
 #include "cmsis_os.h"
-#include "VOFA.h"
 #include "time.h"
 #include "tim.h"
+#include "Gyro.h"
 int rs_imutype =0;
 int rs_ahrstype =0;
 extern int Time_count;
-Imu_data_t Imu_data;
 
 
 int start_time;
 int delta_time;
+
+uint8_t IMU_rdy=0;
 void IMU_msg_process(uint8_t 	Usart_Receive);
 
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
-{	
-		static uint8_t Usart_Receive;
-		HAL_UART_Receive_IT(huart,&Usart_Receive,sizeof(Usart_Receive));
-		IMU_msg_process(Usart_Receive);
-}
 
 void IMU_msg_process(uint8_t Usart_Receive)
 {
@@ -115,8 +110,13 @@ uint8_t TTL_Hex2Dec(void)
 		
 		
  }
-	Imu_Get_Data(&Imu_data);
-return 0;
+	if(IMU_rdy)
+	{
+		Imu_Get_Data_Integral(&Imu_i_data);
+		Imu_data.Yaw_speed = -1 * GyroSystem.Gyro.Rate;
+		Imu_Get_Data(&Imu_data);
+	}
+	return 0;
 }
 
 /*************
@@ -171,29 +171,28 @@ void IMU_Zero_Drift(AHRSData_Packet_t *Self)
 	float delta_yaw_orgin=0;
 	
 //这里delay5秒是因为IMU刚启动的时候温漂比较离谱，过至少5秒之后才正常下来
-	osDelay(5000);
+	osDelay(3000);
 //这里需要测量两个参数：陀螺仪数据的起始角度和角速度温漂
     for (int i = 0; i < IMU_INTEGRAL_TIME; i++)
     {
 			Startyaw+=Self->Heading;
 			delta_yaw_orgin+=Self->Heading-last_yaw_orgin;
 			last_yaw_orgin=Self->Heading;
+			
+			Imu_i_data.Yaw_i_draft+=Self->HeadingSpeed*57.3;
       osDelay(1);
     }
 		Startyaw /= IMU_INTEGRAL_TIME;
 		Imu_data.Yaw_draft=delta_yaw_orgin/IMU_INTEGRAL_TIME*57.3;
 		Imu_data.start_yaw=(float)Startyaw*57.3-Imu_data.Yaw_draft*measurement_period;
+		
+		Imu_i_data.Yaw_i_draft /= IMU_INTEGRAL_TIME;
 }
 //标志位
 uint8_t first_data=0;
 
-void Imu_init(Imu_data_t *Self)
+void Imu_t_Init(Imu_data_t *Self)
 {
-	Self->Pitch = 0;
-	Self->Roll = 0 ;
-	Self->Yaw_process = 0;
-	Self->Pitch_speed = 0;
-	Self->Roll_spped = 0;
 	Self->Yaw_d = 0;
 	Self->Yaw_last = 0;
 	Self->Yaw_speed = 0;
@@ -202,13 +201,42 @@ void Imu_init(Imu_data_t *Self)
 	Self->Yaw_Integral=0;
 	Self->Yaw=0;
 	first_data=0;
+	
+	for(int i=0;i<35;i++)
+	{
+		Self->Yaw_speed_last[i]=0;
+	}
+	Self->Yaw_predict=0;
 	measurement_period=(__HAL_TIM_GetAutoreload(&htim5)+1)/1000;
+	
+}
+
+void Imu_i_Init(Imu_data_i *Self)
+{
+	Self->Yaw_i = 0.0f;
+  Self->Yaw_i_last = 0.0f;
+  Self->Yaw_i_delta = 0.0f;
+  Self->Yaw_i_speed = 0.0f;
+  Self->Yaw_i_draft = 0.0f;
+  Self->Yaw_i_CoeffNegative[0] = 1.00170693779270000000f;//1.00320887876701000000f;  // 1.00210532936093000000f;//1.00219154201177000000f;
+  Self->Yaw_i_CoeffNegative[1] = 0.00001729850040699250f;//0.00006424997938747620f;  // 0.00003796811222844810f;//0.00007270645661039410f;
+  Self->Yaw_i_CoeffNegative[2] = 0.00000005641299708533f;//0.00000196653028001516f;  // 0.00000179981794081602f;//0.00000201023445480647f;
+  Self->Yaw_i_CoeffPositive[0] = 1.00221700036771000000f;//1.00399417065620000000f;  // 1.00486598170788000000f;//1.00251033404716000000f;
+  Self->Yaw_i_CoeffPositive[1] = -0.00002428023356171320f;//-0.00008559299350530130f; //-0.00011541488496424900f;//-0.00007309072921035660f;
+  Self->Yaw_i_CoeffPositive[2] = 0.00000007733011907814f;//0.00000206866180874066f;  // 0.00000221231502608651f;//0.00000201668114984364f;
+}
+
+void Imu_Init(Imu_data_t *Imu_t,Imu_data_i *Imu_i)
+{
+	Imu_t_Init(Imu_t);
+	Imu_i_Init(Imu_i);
 	IMU_Zero_Drift(&AHRSData_Packet);
+	IMU_rdy=1;
 }
 //下面两个变量都是用来修正角速度漂移的
 int count=0;
 uint8_t flag=0;
-
+float look;
 void Imu_Get_Data(Imu_data_t *Self)
 {
 	//做过死区限制的原始数据，和下面没做过死区的rawdata要区分开
@@ -219,7 +247,9 @@ void Imu_Get_Data(Imu_data_t *Self)
 		static float last_rawdata=0;
 		float delta_rawdata=0;
 		float rawdata=AHRSData_Packet.Heading;
-	
+		float last_draft;
+		
+//		AHRSData_Packet.Heading-=measurement_period*Self->Yaw_draft/57.3;
 	//死区处理	
 		if(fabs(AHRSData_Packet.Heading-last_rawdata_dz)<=RAW_DATA_DEADZONE)
 		{
@@ -240,8 +270,9 @@ void Imu_Get_Data(Imu_data_t *Self)
 				//如果某次静态状态下测量的数据超过了5组，则认为是有效的，将最新测量结果作为新的漂移偏置
 				if(count>=5)
 				{
+					last_draft=Self->Yaw_draft;
 					Self->Yaw_draft=delta_rawdata/count/measurement_period*57.3f;
-					Self->start_yaw-=Imu_data.Yaw_draft*measurement_period;
+					Self->start_yaw-=Imu_data.Yaw_draft*measurement_period - last_draft * measurement_period;
 				}
 				count=0;
 			}
@@ -270,7 +301,7 @@ void Imu_Get_Data(Imu_data_t *Self)
 		//由于动态过程中的漂移很难观测到，所以这里只在静态的状态下进行漂移的修正
 		if(static_flag)
 		{
-			Self->Yaw_process-=measurement_period*Self->Yaw_draft;
+			Self->Yaw_process -= Self->Yaw_draft;
 		}
 		//第一次测量得到的数据不要
 		if(!first_data)
@@ -316,6 +347,21 @@ void Imu_Get_Data(Imu_data_t *Self)
 		{
 			Self->Yaw+=Self->Yaw_process+IMU_NEGATIVE_PARA*Self->Yaw_d;
 		}
+		//对角度进行预测修正，这里认为延迟为175ms，所以用陀螺仪前35帧数据做积分
+		Self->Yaw -= Self->Yaw_predict;
+		
+		
+		look=Self->Yaw;
+		
+		Self->Yaw_predict=0;
+		for(int i=0;i<34;i++)
+		{
+			Self->Yaw_speed_last[34-i]=Self->Yaw_speed_last[34-i-1];
+			Self->Yaw_predict += Self->Yaw_speed_last[34-i]*5.0f/1000.0f;
+		}
+		Self->Yaw_speed_last[0]=Self->Yaw_speed;
+		Self->Yaw_predict += Self->Yaw_speed_last[0]*5.0f/1000.0f;
+		Self->Yaw += Self->Yaw_predict;
 		
 		//将最终角度限制在0-360间
 		if(Self->Yaw>360)
@@ -326,4 +372,61 @@ void Imu_Get_Data(Imu_data_t *Self)
 		{
 			Self->Yaw+=360;
 		}
+}
+
+//采用角速度积分得到imu角度的算法，具体内容和陀螺仪一样
+void Imu_Get_Data_Integral(Imu_data_i *Self)
+{
+		static bool Is_First_Cal_Angle;
+    static float Gyro_Pre_Rate;
+    uint16_t Now_Time;
+    static uint16_t Pre_Time = 0;
+    uint16_t Delta_Time;
+    float Gyro_Mid_Rate;
+
+		Self->Yaw_i_speed=AHRSData_Packet.HeadingSpeed*57.3f;
+	
+	  if (Self->Yaw_i_speed < 0)
+		{
+        Self->Yaw_i_speed = Self->Yaw_i_CoeffNegative[2] * Self->Yaw_i_speed * Self->Yaw_i_speed *
+                        Self->Yaw_i_speed +
+                    Self->Yaw_i_CoeffNegative[1] * Self->Yaw_i_speed * Self->Yaw_i_speed +
+                    Self->Yaw_i_CoeffNegative[0] * Self->Yaw_i_speed;
+		}
+    else if (Self->Yaw_i_speed > 0)
+		{
+        Self->Yaw_i_speed = Self->Yaw_i_CoeffPositive[2] * Self->Yaw_i_speed * Self->Yaw_i_speed *
+                        Self->Yaw_i_speed +
+                    Self->Yaw_i_CoeffPositive[1] * Self->Yaw_i_speed * Self->Yaw_i_speed +
+                    Self->Yaw_i_CoeffPositive[0] * Self->Yaw_i_speed;
+		}
+    Self->Yaw_i_speed -= Self->Yaw_i_draft;
+    Now_Time = DT_US_COUNT; // unit : us
+		if(Pre_Time>Now_Time)
+		{
+			Delta_Time=Now_Time - Pre_Time +65535;
+		}
+		else
+		{
+			Delta_Time = Now_Time - Pre_Time;
+		}
+    Pre_Time = Now_Time;
+
+    if (Is_First_Cal_Angle == true)
+    {
+				Gyro_Pre_Rate = Self->Yaw_i_speed; 
+        Is_First_Cal_Angle = false;
+    }
+    else
+    {
+        Gyro_Mid_Rate = (Self->Yaw_i_speed + Gyro_Pre_Rate) * 0.5f;
+        Gyro_Pre_Rate = Self->Yaw_i_speed;
+
+        if (fabs(Gyro_Mid_Rate) <= IMU_RATE_DEAD)
+            Gyro_Mid_Rate = 0.0f;
+
+        Self->Yaw_i_last = Self->Yaw_i;
+        Self->Yaw_i_delta = Gyro_Mid_Rate * Delta_Time / 1000000.0f;
+        Self->Yaw_i += Self->Yaw_i_delta;
+    }
 }
